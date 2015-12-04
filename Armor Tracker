@@ -1,0 +1,506 @@
+package datastore;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import model.User;
+
+/**
+ * DAOSQLite Data Access Object for an SQLite database
+ *
+ * @author John Phillips
+ * @version 0.3 on 2015-11-03 revised 2015-11-19
+ */
+public class DAOSQLite {
+
+    protected final static String DRIVER = "org.sqlite.JDBC";
+    protected final static String JDBC = "jdbc:sqlite";
+
+    /**
+     * Inserts an record into the database table. Note the use of a
+     * parameterized query to prevent SQL Injection attacks.
+     *
+     * @param user the object to insert
+     * @param dbPath the path to the SQLite database
+     */
+    public static void createRecord(User user, String dbPath) {
+        String q = "insert into user (id, material, charLevel, style, type, rating) "
+                + "values (null, ?, ?, ?, ?, ?)";
+        try (Connection conn = getConnectionDAO(dbPath);
+                PreparedStatement ps = conn.prepareStatement(q)) {
+            ps.setString(1, user.getMaterial());
+            ps.setInt(2, user.getCharLevel());
+            ps.setString(3, user.getStyle());
+            ps.setString(4, user.getType());
+            ps.setString(5, user.getRating());
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Logger.getLogger(DAOSQLite.class
+                    .getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    /**
+     * Retrieve all of the records in the database as a list sorted by
+     * email+date+time. This method was replaced by a more advanced method.
+     *
+     * @param dbPath the path to the SQLite database
+     * @return list of objects
+     */
+//    public static List<User> retrieveAllRecords(String dbPath) {
+//        String q = "select * from user order by email, date, time";
+//        List<User> list = null;
+//        try (Connection conn = getConnectionDAO(dbPath);
+//                PreparedStatement ps = conn.prepareStatement(q)) {
+//            list = myQuery(conn, ps);
+//        } catch (SQLException ex) {
+//            Logger.getLogger(DAOSQLite.class
+//                    .getName()).log(Level.SEVERE, null, ex);
+//        }
+//        return list;
+//    }
+    
+    /**
+     * This is a much more advanced retrieve method. It can get all of the
+     * records from the database or a subset based on the various parameters
+     * passed in.
+     *
+     * @param dbPath the path to the SQLite database
+     * @param material - the email of the user/patient
+     * @param startdate - the starting date of the readings to show
+     * @param enddate - the ending date of the readings to show
+     * @param lowhigh - controls which charlevels levels to show; values include all, low, high, and lowhigh
+     * @return list of objects
+     */
+    public static List<User> retrieveRecords(String dbPath, String material, String startdate, String enddate, String lowhigh) {
+        // Need a better solution to the hard coded low/high values below.
+        String q = "select * from user where material like ? and style between ? and ? order by material, style, type";
+        if (lowhigh.equalsIgnoreCase("low")) {
+            q = "select * from user where material like ? and style between ? and ? and charLevel < 50 order by material, style, type";
+        } else if (lowhigh.equalsIgnoreCase("high")) {
+            q = "select * from user where material like ? and style between ? and ? and charLevel > 200 order by material, style, type";
+        } else if (lowhigh.equalsIgnoreCase("lowhigh")) {
+            q = "select * from user where material like ? and style between ? and ? and (charLevel < 50 or charLevel > 200) order by material, style, type";
+        }
+
+        List<User> list = null;
+        try (Connection conn = getConnectionDAO(dbPath);
+                PreparedStatement ps = conn.prepareStatement(q)) {
+            // the % sign is an sql wildcard so that we can search by just a few letters of the email name
+            ps.setString(1, material + "%");
+            ps.setString(2, startdate);
+            ps.setString(3, enddate);
+            System.out.println(q);
+            list = myQuery(conn, ps);
+        } catch (SQLException ex) {
+            Logger.getLogger(DAOSQLite.class
+                    .getName()).log(Level.SEVERE, null, ex);
+        }
+        return list;
+    }
+
+    /**
+     * Delete a record from the database given its id. Note the use of a
+     * parameterized query to prevent SQL Injection attacks.
+     *
+     * @param id the id of the record to delete
+     * @param dbPath the path to the SQLite database
+     */
+    public static void deleteRecord(int id, String dbPath) {
+        String q = "delete from user where id = ?";
+        try (Connection conn = getConnectionDAO(dbPath);
+                PreparedStatement ps = conn.prepareStatement(q)) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Logger.getLogger(DAOSQLite.class
+                    .getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    /**
+     * Creates a new user table.
+     *
+     * @param dbPath the path to the SQLite database
+     */
+    public static void createTable(String dbPath) {
+        String q = "create table user ("
+                + "id integer not null primary key autoincrement, "
+                + "material varchar(20) not null, "
+                + "charLevel integer not null, "
+                + "style varchar(10) not null, "
+                + "type varchar(10) not null, "
+                + "rating varchar(255) null)";
+        try (Connection conn = getConnectionDAO(dbPath);
+                PreparedStatement ps = conn.prepareStatement(q)) {
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Logger.getLogger(DAOSQLite.class
+                    .getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    /**
+     * Drops the user table erasing all of the data.
+     *
+     * @param dbPath the path to the SQLite database
+     */
+    public static void dropTable(String dbPath) {
+        final String q = "drop table if exists user";
+        try (Connection conn = getConnectionDAO(dbPath);
+                PreparedStatement ps = conn.prepareStatement(q)) {
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Logger.getLogger(DAOSQLite.class
+                    .getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    /**
+     * Populates the table with sample data records.
+     *
+     * @param dbPath the path to the SQLite database
+     */
+    public static void populateTable(String dbPath) {
+        User p;
+        p = new User(0, "Ebony Ore", 46, "Imperial", "Heavy", "This is an example of a 1046 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Ebony Ore", 48, "Nord", "Heavy", "This is an example of a 1072 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Dwarven", 45, "Imperial", "Heavy", "This is an example of a 985 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Calicium", 50, "Imperial", "Heavy", "This is an example of a 1246 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Ebony Ore", 46, "Akiviri", "Heavy", "This is an example of a 1046 normal rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Rudebite", 50, "Altimer", "Heavy", "This is an example of a 1600 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Rudebite", 50, "Dunmer", "Heavy", "This is an example of an 1650 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Dwarven", 40, "Dwermer", "Heavy", "This is an example of an 975 rating");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Calicium", 50, "Imperial", "Heavy", "This is an example of a 1244 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Dwarven Ore", 38, "Glass", "Heavy", "This is an example of a 950 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+        p = new User(0, "Rudebite", 50, "Xivkyn", "Heavy", "This is an example of a 2000 rating.");
+        DAOSQLite.createRecord(p, dbPath);
+    }
+
+    /**
+     * A helper method that executes a prepared statement and returns the result
+     * set as a list of objects.
+     *
+     * @param conn a connection to the database
+     * @param ps a prepared statement
+     * @return list of objects from the result set
+     */
+    protected static List<User> myQuery(Connection conn, PreparedStatement ps) {
+        List<User> list = new ArrayList();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                int id = rs.getInt("id");
+                String material = rs.getString("material");
+                int charLevel = rs.getInt("charLevel");
+                String style = rs.getString("style");
+                String type = rs.getString("type");
+                String rating = rs.getString("rating");
+                User p = new User(id, material, charLevel, style, type, rating);
+                list.add(p);
+            }
+        } catch (SQLException ex) {
+            Logger.getLogger(DAOSQLite.class
+                    .getName()).log(Level.SEVERE, null, ex);
+        }
+        return list;
+    }
+
+    /**
+     * Creates a connection to the SQLite database.
+     *
+     * @param dbPath the path to the SQLite database
+     * @return connection to the database
+     */
+    protected static Connection getConnectionDAO(String dbPath) {
+        Connection conn = null;
+        try {
+            Class.forName(DRIVER);
+            conn = DriverManager.getConnection(JDBC + ":" + dbPath);
+        } catch (ClassNotFoundException | SQLException ex) {
+            Logger.getLogger(DAOSQLite.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return conn;
+    }
+}
+
+package model;
+
+import java.io.Serializable;
+
+/**
+ *
+ * @author Austin Swebilius
+ */
+public class User implements Serializable {
+
+    private int id;
+    private String material;
+    private int charLevel;
+    private String style;
+    private String type;
+    private String rating;
+
+    public User() {
+        id = 4;
+        material = "Ebony Ore";
+        charLevel = 46;
+        style = "Imperial";
+        type = "Heavy";
+        rating = "1046";
+    }
+
+    public User(int id, String material, int charLevel, String style, String type, String rating) {
+        this.id = id;
+        this.material = material;
+        this.charLevel = charLevel;
+        this.style = style;
+        this.type = type;
+        this.rating = rating;
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    public String getMaterial() {
+        return material;
+    }
+
+    public void setMaterial(String material) {
+        this.material = material;
+    }
+
+    public int getCharLevel() {
+        return charLevel;
+    }
+
+    public void setCharLevel(int charLevel) {
+        this.charLevel = charLevel;
+    }
+
+    public String getStyle() {
+        return style;
+    }
+
+    public void setStyle(String style) {
+        this.style = style;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getRating() {
+        return rating;
+    }
+
+    public void setRating(String rating) {
+        this.rating = rating;
+    }
+
+    public String inHTMLRowFormat() {
+        return "<tr><td>" + id + "</td>"
+                + "<td>" + material + "</td>"
+                + "<td>" + charLevel + "</td>"
+                + "<td>" + style + "</td>"
+                + "<td>" + type + "</td>"
+                + "<td>" + rating + "</td></tr>\n";
+    }
+
+    @Override
+    public String toString() {
+        return "User{" + "id=" + id + ", email=" + material + ", bloodSugar="
+                + charLevel + ", date=" + style + ", time=" + type
+                + ", notes=" + rating + '}';
+    }
+}
+
+package servlets;
+
+import datastore.DAOSQLite;
+import java.io.IOException;
+import java.util.List;
+import javax.servlet.RequestDispatcher;
+import javax.servlet.ServletContext;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import model.User;
+
+/**
+ * All of this application's web pages send their requests to this controller
+ * which then updates the model / database as needed and transfers control with
+ * data to one the the HTML/JSP view-oriented programs for display.
+ *
+ * @author John Phillips
+ */
+public class Controller extends HttpServlet {
+
+    /**
+     * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
+     * methods.
+     *
+     * @param request servlet request
+     * @param response servlet response
+     * @throws ServletException if a servlet-specific error occurs
+     * @throws IOException if an I/O error occurs
+     */
+    protected void processRequest(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        // get real path to the sqlite db
+        ServletContext sc = this.getServletContext();
+        String dbPath = sc.getRealPath("/WEB-INF/superstar.db");
+
+        // set default url
+        String url = "/home.html";
+
+        // get current action
+        String action = request.getParameter("action");
+        if (action == null) {
+            action = "home";
+        }
+
+        // perform action and set url
+        if (action.equalsIgnoreCase("home")) {
+            System.out.println("controller:home");
+            url = "/home.html";
+
+        } else if (action.equalsIgnoreCase("createRecord")) {
+            System.out.println("controller:createRecord");
+            int charLevel = 0;
+
+            // get parameters passed in from the request
+            String material = request.getParameter("material");
+            String charString = request.getParameter("charLevel");
+            String style = request.getParameter("style");
+            String type = request.getParameter("type");
+            String rating = request.getParameter("rating");
+
+            // validate and convert salary string into a double
+            if (charString == null || charString.isEmpty()) {
+                charLevel = 0;
+            } else {
+                charLevel = Integer.parseInt(charString);
+            }
+
+            // store data in an User object
+            User user = new User(0, material, charLevel, style, type, rating);
+            System.out.println("Controller:createRecord:user=" + user);
+
+            // validate the parameters
+            if (material == null || style == null || type == null
+                    || material.isEmpty() || style.isEmpty() || type.isEmpty()) {
+                url = "/createRecord.jsp";
+            } else {
+                // insert this data record into the database
+                DAOSQLite.createRecord(user, dbPath);
+                url = "/home.html";
+            }
+
+        } else if (action.equalsIgnoreCase("report")) {
+            System.out.println("controller:report");
+            String material = request.getParameter("material");
+            if (material == null || material.isEmpty()) {
+                material = "%";
+            }
+            String startdate = request.getParameter("startdate");
+            String enddate = request.getParameter("enddate");
+            String lowhigh = request.getParameter("lowhigh");
+            List<User> mydata = DAOSQLite.retrieveRecords(dbPath, material, startdate, enddate, lowhigh);
+            request.setAttribute("material", material);
+            request.setAttribute("startdate", startdate);
+            request.setAttribute("enddate", enddate);
+            request.setAttribute("lowhigh", lowhigh);
+            request.setAttribute("mydata", mydata);
+            url = "/showRecords.jsp";
+
+        } else if (action.equalsIgnoreCase("deleteRecord")) {
+            System.out.println("controller:deleteRecord");
+            String idString = request.getParameter("id");
+            if (idString == null || idString.isEmpty()) {
+                url = "/deleteRecord.jsp";
+            } else {
+                DAOSQLite.deleteRecord(Integer.parseInt(idString), dbPath);
+                url = "/home.html";
+            }
+
+        } else if (action.equalsIgnoreCase("makeDB")) {
+            System.out.println("controller:makeDB");
+            DAOSQLite.dropTable(dbPath);
+            DAOSQLite.createTable(dbPath);
+            DAOSQLite.populateTable(dbPath);
+            url = "/home.html";
+        }
+
+        RequestDispatcher dispatcher = getServletContext().getRequestDispatcher(url);
+
+        dispatcher.forward(request, response);
+    }
+
+    // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">
+    /**
+     * Handles the HTTP <code>GET</code> method.
+     *
+     * @param request servlet request
+     * @param response servlet response
+     * @throws ServletException if a servlet-specific error occurs
+     * @throws IOException if an I/O error occurs
+     */
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response);
+    }
+
+    /**
+     * Handles the HTTP <code>POST</code> method.
+     *
+     * @param request servlet request
+     * @param response servlet response
+     * @throws ServletException if a servlet-specific error occurs
+     * @throws IOException if an I/O error occurs
+     */
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response);
+    }
+
+    /**
+     * Returns a short description of the servlet.
+     *
+     * @return a String containing servlet description
+     */
+    @Override
+    public String getServletInfo() {
+        return "Controller for Employee App";
+    }// </editor-fold>
+
+}
